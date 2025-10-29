@@ -789,6 +789,7 @@ class _LoginScreenState extends State<LoginScreen> {
           borderRadius: BorderRadius.circular(18),
           color: const Color(0xFF6366F1),
         ),
+        dividerColor: Colors.transparent,
         labelStyle: const TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
         labelColor: Colors.white,
         unselectedLabelColor: Colors.white.withOpacity(0.6),
