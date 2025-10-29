@@ -375,11 +375,47 @@ class _LoginScreenState extends State<LoginScreen> {
     try {
       final response =
           await _apiClient.login(account: account, password: password);
-      final message = response.data?['message']?.toString() ?? '登录成功';
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(message)),
-      );
+      final data = response.data;
+      final payload = <String, dynamic>{};
+      if (data is Map<String, dynamic>) {
+        payload.addAll(data);
+      } else if (data is Map) {
+        for (final entry in data.entries) {
+          payload[entry.key.toString()] = entry.value;
+        }
+      }
+
+      final message = payload['message']?.toString() ?? '登录成功';
+      final token = payload['token']?.toString();
+
+      if (Platform.isWindows && token != null && token.isNotEmpty) {
+        try {
+          final result =
+              await Process.run('cmd', ['/c', 'start', 'dnf.exe', token]);
+          if (!mounted) return;
+          if (result.exitCode != 0) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('$message，但启动客户端失败 (code ${result.exitCode})'),
+              ),
+            );
+          } else {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('$message，正在启动客户端...')),
+            );
+          }
+        } catch (error) {
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('$message，但启动客户端失败: $error')),
+          );
+        }
+      } else {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(message)),
+        );
+      }
     } on DioException catch (error) {
       final message = error.response?.data?['message']?.toString() ??
           error.message ??
@@ -892,8 +928,8 @@ class _LoginScreenState extends State<LoginScreen> {
           const SizedBox(height: 10),
           _buildField(
             controller: _registerRecommenderController,
-            label: '推荐人（选填）',
-            hint: '请输入推荐人',
+            label: '推荐人',
+            hint: '请输入邀请人账号',
             prefixIcon: Icons.card_giftcard,
             dense: true,
           ),

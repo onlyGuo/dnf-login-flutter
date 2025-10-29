@@ -5,7 +5,10 @@ POST https://dnf.cv58.xyz/api/v1/client/login
     "accountname": "xxx",
     "password": "xxx"
 }
-
+响应：
+{
+    "token": "xxx"
+}
 # 注册
 POST https://dnf.cv58.xyz/api/v1/client/register
 请求:
@@ -32,6 +35,14 @@ GET https://dnf.cv58.xyz/api/v1/client/version
 与当前目录下version.json做对比, 如果没有文件或者没有版本号或者文件无法解析或者版本号不同, 则自动更新.
 更新时展示进度条, 更新过程中禁止其他操作.文件下载下来后, 解压覆盖到当前目录, 然后在当前目录的version.json写入版本号.
 
+# 获取完整资源包
+GET https://dnf.cv58.xyz/api/v1/client/full-package
+响应:
+{
+    "downloadUrl": "https://dnf.cv58.xyz/download/full_package.zip"
+}
+当客户端启动且当前目录缺少 `Script.pvf` 时, 先调用此接口获取完整资源包, 下载后解压覆盖当前目录, 然后再执行版本更新检测。
+
 # 登录器展示大图列表
 GET https://dnf.cv58.xyz/api/v1/client/big-pic-list
 响应:
@@ -43,3 +54,4 @@ GET https://dnf.cv58.xyz/api/v1/client/big-pic-list
     },
     ...
 ]
+w

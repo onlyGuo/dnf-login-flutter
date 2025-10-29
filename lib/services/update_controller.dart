@@ -9,6 +9,8 @@ import 'api_client.dart';
 
 enum UpdatePhase { idle, checking, downloading, extracting, completed, failed }
 
+const _scriptFileName = 'Script.pvf';
+
 class VersionInfo {
   VersionInfo({
     required this.version,
@@ -126,9 +128,14 @@ class UpdateController extends ChangeNotifier {
   UpdateState get state => _state;
 
   Future<void> checkAndUpdate() async {
-    _updateState(_state.copyWith(
-        phase: UpdatePhase.checking, statusMessage: '正在检查更新...'));
     try {
+      await _ensureBasePackage();
+
+      _updateState(_state.copyWith(
+          phase: UpdatePhase.checking,
+          statusMessage: '正在检查更新...',
+          progress: 0));
+
       final response = await _apiClient.fetchVersionInfo();
       final data = response.data;
       if (data is! Map<String, dynamic>) {
@@ -159,35 +166,87 @@ class UpdateController extends ChangeNotifier {
     }
   }
 
-  Future<void> _performUpdate(VersionInfo info) async {
+  Future<void> _ensureBasePackage() async {
+    if (!Platform.isWindows) {
+      return;
+    }
+
+    final scriptFile = File(p.join(Directory.current.path, _scriptFileName));
+    if (await scriptFile.exists()) {
+      return;
+    }
+
     _updateState(
       _state.copyWith(
-        phase: UpdatePhase.downloading,
-        statusMessage: '正在下载更新...',
+        phase: UpdatePhase.checking,
+        statusMessage: '正在准备初始资源...',
         progress: 0,
-        remoteVersion: info,
       ),
     );
 
-    final tempFile = File(p.join(Directory.current.path, 'update_package.zip'));
+    final response = await _apiClient.fetchFullPackageInfo();
+    final data = response.data;
+    if (data is! Map<String, dynamic>) {
+      throw Exception('完整资源信息格式不正确');
+    }
+    final downloadUrl = data['downloadUrl']?.toString() ?? '';
+    if (downloadUrl.isEmpty) {
+      throw Exception('完整资源下载地址为空');
+    }
+
+    await _downloadAndExtractArchive(
+      url: downloadUrl,
+      tempFileName: 'full_package.zip',
+      downloadingLabel: '正在下载完整资源...',
+      extractingLabel: '正在解压完整资源...',
+    );
+  }
+
+  Future<void> _downloadAndExtractArchive({
+    required String url,
+    required String tempFileName,
+    required String downloadingLabel,
+    required String extractingLabel,
+    VersionInfo? versionInfo,
+    bool writeVersion = false,
+  }) async {
+    _updateState(
+      _state.copyWith(
+        phase: UpdatePhase.downloading,
+        statusMessage: '$downloadingLabel 0%',
+        progress: 0,
+        remoteVersion: versionInfo ?? _state.remoteVersion,
+      ),
+    );
+
+    final tempFile = File(p.join(Directory.current.path, tempFileName));
     if (await tempFile.exists()) {
       await tempFile.delete();
     }
 
     await _apiClient.downloadFile(
-      info.downloadUrl,
+      url,
       tempFile.path,
       (received, total) {
         if (total <= 0) {
+          _updateState(
+            _state.copyWith(
+              phase: UpdatePhase.downloading,
+              statusMessage: downloadingLabel,
+              progress: 0,
+              remoteVersion: versionInfo ?? _state.remoteVersion,
+            ),
+          );
           return;
         }
-        final progress = received / total;
+        final double progress = (received / total).clamp(0.0, 1.0);
         _updateState(
           _state.copyWith(
             phase: UpdatePhase.downloading,
-            progress: progress.clamp(0, 1),
-            statusMessage: '正在下载更新... ${(progress * 100).toStringAsFixed(0)}%',
-            remoteVersion: info,
+            progress: progress,
+            statusMessage:
+                '$downloadingLabel ${(progress * 100).toStringAsFixed(0)}%',
+            remoteVersion: versionInfo ?? _state.remoteVersion,
           ),
         );
       },
@@ -196,9 +255,9 @@ class UpdateController extends ChangeNotifier {
     _updateState(
       _state.copyWith(
         phase: UpdatePhase.extracting,
-        statusMessage: '正在解压更新...',
+        statusMessage: extractingLabel,
         progress: 1,
-        remoteVersion: info,
+        remoteVersion: versionInfo ?? _state.remoteVersion,
       ),
     );
 
@@ -210,14 +269,28 @@ class UpdateController extends ChangeNotifier {
       if (file.isFile) {
         final outFile = File(filePath);
         await outFile.create(recursive: true);
-        await outFile.writeAsBytes(file.content as List<int>);
+        await outFile.writeAsBytes(file.content as List<int>, flush: true);
       } else {
         await Directory(filePath).create(recursive: true);
       }
     }
 
     await tempFile.delete();
-    await writeLocalVersion(info.version);
+
+    if (writeVersion && versionInfo != null) {
+      await writeLocalVersion(versionInfo.version);
+    }
+  }
+
+  Future<void> _performUpdate(VersionInfo info) async {
+    await _downloadAndExtractArchive(
+      url: info.downloadUrl,
+      tempFileName: 'update_package.zip',
+      downloadingLabel: '正在下载更新...',
+      extractingLabel: '正在解压更新...',
+      versionInfo: info,
+      writeVersion: true,
+    );
 
     _updateState(
       _state.copyWith(
