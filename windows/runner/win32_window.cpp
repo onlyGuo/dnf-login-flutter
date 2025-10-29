@@ -17,6 +17,8 @@ namespace {
 #endif
 
 constexpr const wchar_t kWindowClassName[] = L"FLUTTER_RUNNER_WIN32_WINDOW";
+// Radius used to clip the native window so Flutter's rounded chrome matches.
+constexpr int kWindowCornerRadius = 28;
 
 /// Registry key for app theme preference.
 ///
@@ -51,6 +53,41 @@ void EnableFullDpiSupportIfAvailable(HWND hwnd) {
     enable_non_client_dpi_scaling(hwnd);
   }
   FreeLibrary(user32_module);
+}
+
+void ApplyRoundedCorners(HWND hwnd) {
+  if (!hwnd) {
+    return;
+  }
+  RECT window_rect;
+  if (!GetWindowRect(hwnd, &window_rect)) {
+    return;
+  }
+
+  const int width = window_rect.right - window_rect.left;
+  const int height = window_rect.bottom - window_rect.top;
+  if (width <= 0 || height <= 0) {
+    return;
+  }
+
+  HMONITOR monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+  UINT dpi = monitor ? FlutterDesktopGetDpiForMonitor(monitor) : 96;
+  if (dpi == 0) {
+    dpi = 96;
+  }
+  const double scale_factor = dpi / 96.0;
+  const int radius = Scale(kWindowCornerRadius, scale_factor);
+  const int diameter = radius * 2;
+  HRGN region = CreateRoundRectRgn(0, 0, width + 1, height + 1, diameter, diameter);
+  if (!region) {
+    return;
+  }
+
+  const int result = SetWindowRgn(hwnd, region, TRUE);
+  if (result == 0) {
+    // Ownership of region wasn't transferred; clean up to avoid leaks.
+    DeleteObject(region);
+  }
 }
 
 }  // namespace
@@ -145,6 +182,7 @@ bool Win32Window::Create(const std::wstring& title,
   }
 
   UpdateTheme(window);
+  ApplyRoundedCorners(window);
 
   return OnCreate();
 }
@@ -195,10 +233,13 @@ Win32Window::MessageHandler(HWND hwnd,
       SetWindowPos(hwnd, nullptr, newRectSize->left, newRectSize->top, newWidth,
                    newHeight, SWP_NOZORDER | SWP_NOACTIVATE);
 
+      ApplyRoundedCorners(hwnd);
+
       return 0;
     }
     case WM_SIZE: {
       RECT rect = GetClientArea();
+      ApplyRoundedCorners(hwnd);
       if (child_content_ != nullptr) {
         // Size and position the child window.
         MoveWindow(child_content_, rect.left, rect.top, rect.right - rect.left,
